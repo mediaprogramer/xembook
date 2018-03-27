@@ -1,0 +1,302 @@
+
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0">
+	<link rel="apple-touch-icon" href="icon.png">
+	<title>TipNEM</title>
+	<script src="http://code.jquery.com/jquery-1.10.2.js"></script>
+	<script src="https://cdn.jsdelivr.net/clipboard.js/1.5.3/clipboard.min.js"></script>
+	<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css" />
+	<link rel="stylesheet" href="style.css" />
+	<script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+	<script>
+	var WEB_SOCKET_URL = "ws://153.122.86.46:8088";
+	var TIPNEM_ADDRESS = "NCR2CQE6AI3DIRHPHEPBSVDBOQFSHXFSQF4NIUAH";
+//	var WEB_SOCKET_URL = "ws://153.122.86.46:8080";
+//	var TIPNEM_ADDRESS = "TB5K44A4CAG3P5ZMV24YJ75HV4UVKEKIRIJ7UKUS";
+
+
+	</script>
+	<script src="tipnem.js"></script>
+	<script>
+	  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+	  ga('create', 'UA-100421513-1', 'auto');
+	  ga('send', 'pageview');
+
+	</script>
+</head>
+
+<body>
+
+<h1>TipNEM</h1>
+<hr class="zigzag-orange-white">
+<div class="container">
+	<div class="row">
+		<div class="account col-sm-4">
+			<h2>アカウント</h2>
+			<dl>
+			<dt>ツイッター名</dt>
+			<dd><span id="account_address"></span>
+				<button id="change_twitter" type="button" class="btn btn-xs btn-primary">変更</button> <button id="reload_twitter" type="button" class="btn btn-xs btn-primary">更新</button>
+			</dd>
+			<dd><span id="account_balance"></span></dd>
+			<table id="mosaic_balance">
+				<thead><tr><th>モザイク</th><th>残高</th></tr></thead>
+			<tbody></tbody>
+			</table>
+			</dl>
+
+			<h2>入出金</h2>
+<dl>
+			<dd><button type="button" class="btn btn-primary " data-toggle="modal" id="button_withdrow">出金 ( PINコード送信 )</button></dd>
+			<dd><button type="button" class="btn btn-primary " data-toggle="modal" id="button_lottery">配布 ( PINコード送信 )</button></dd>
+</dl>
+
+			<dt>入金先</dt>
+			<ul class="list-inline">
+			<li><input id="nem_address" type="textarea" value="NCR2CQE6AI3DIRHPHEPBSVDBOQFSHXFSQF4NIUAH" onclick="this.setSelectionRange(0,9999);" readonly></li>
+			<li><button id="clipboard" type="button" class="btn btn-default" data-clipboard-target="#nem_address">Copy</button></li>
+			</ul>
+
+			<dt>入金タグ</dt>
+			<ul class="list-inline">
+			<li><input id="nem_gettag" type="textarea" value="" onclick="this.setSelectionRange(0,9999);" readonly></li>
+			<li><button id="clipboard" type="button" class="btn btn-default" data-clipboard-target="#nem_gettag">Copy</button></li>
+			</ul>
+
+			<dt>入金用QRコード</dt>
+			<ul class="list-unstyled">
+			<li><img id="depositqr" src="" alt="" width="180" height="180"></li>
+
+		</div>
+
+		<div class="col-sm-4">
+			<h2>チップ受渡履歴</h2>
+			<table id="transfers">
+			<thead><tr><th>日時/受渡者</th><th>モザイク/金額</th></tr></thead>
+			<tbody></tbody>
+			</table>
+			<dd><a id="transfers_more" href="javascript:void(0)" >さらに読み込む</a></dd>
+		<dl>
+		</dl>
+		</div>
+		<div class="col-sm-4">
+			<h2>入出金履歴</h2>
+			<dt>出金</dt>
+			<table id="transfers2_outgoing">
+			<thead><tr><th>日時/アドレス</th><th>モザイク/金額</th></tr></thead>
+			<tbody></tbody>
+			</table>
+			<dt>入金</dt>
+			<table id="transfers2_incoming">
+			<thead><tr><th>日時/アドレス</th><th>モザイク/金額</th></tr></thead>
+			<tbody></tbody>
+			</table>
+		<dl>
+		</dl>
+		</div>
+	</div>
+	<div class="faucet">
+		<h2>リンク</h2>
+		<dl>
+			<dd><a target="_blank" href="https://namuyan.github.io/nem-tip-bot/">nem-tip-bot</a></dd>
+			<dd><a id="xembook" href="">XEMBook</a></dd>
+		</dl>
+	</div>
+
+
+
+
+	<div class="modal fade" id="sampleModal" tabindex="-1">
+		<div class="modal-dialog">
+			<div class="modal-content">
+				<div class="modal-header">
+					<button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+					<h4 class="modal-title">出金　<button type="button" class="btn btn-default" data-toggle="modal" id="button_mono_withdrow">単一モザイク出金</button></h4>
+				</div>
+				<div class="modal-body">
+					<form class="form-horizontal" >
+						<div class="form-group">
+							<label class="col-sm-2 control-label">宛先</label><div class="col-sm-10"><input type="text" class="form-control" id="withdrow_address" ></div>
+						</div>
+
+						<div id="wd_form2">
+						</div>
+					<!--
+						<div class="form-group">
+							<label class="col-sm-4 control-label">nem:xem</label><div class="col-sm-8"><input type="text" class="form-control" id="nem:xem" ></div>
+						</div>
+					-->
+					</form>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">キャンセル</button>
+					<button type="button" class="btn btn-primary" data-dismiss="modal" data-toggle="modal" data-target="#thankModal" id="withdrow_submit">次へ</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<div class="modal fade" id="sampleModal2" tabindex="-1">
+		<div class="modal-dialog">
+			<div class="modal-content">
+				<div class="modal-header">
+					<button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+					<h4 class="modal-title">出金の確認</h4>
+				</div>
+				<div class="modal-body">
+					<form class="form-horizontal" >
+						<div class="form-group">
+							<label class="col-sm-2 control-label">宛先</label><div class="col-sm-10"><input type="text" class="form-control" id="withdrow_mono_address" ></div>
+						</div>
+
+						<div class="form-group">
+						<div id="wd_form4">
+						<select class="form-control"></select>
+						</div>
+						</div>
+
+						<div class="form-group">
+							<label class='col-sm-2 control-label'>出金額</label><div class='col-sm-10'><input type='text' value='0' class='form-control' id="withdrow_mono_amount"></div>
+						</div>
+
+
+					</form>
+
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">キャンセル</button>
+					<button type="button" class="btn btn-primary" data-dismiss="modal" data-toggle="modal" data-target="#thankModal" id="withdrow_mono_submit">次へ</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+
+	<div id="thankModal" class="modal fade">
+		 <div class="modal-dialog">
+			 <div class="modal-content">
+				 <div class="modal-header">
+					 <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+					 <h4 class="modal-title">出金額の確認</h4>
+				 </div>
+				 <div class="modal-body">
+				<form class="form-horizontal" >
+					<table id="wd_form3_all">
+						<thead><tr><th>出金総額</th><th></th></tr></thead>
+					<tbody></tbody>
+					</table><br>
+					<table id="wd_form3_send">
+						<thead><tr><th>手数料内訳</th><th></th></tr></thead>
+					<tbody></tbody>
+					</table>
+				 <div id="wd_form3">
+				 </div>
+			 </form>
+				 </div>
+
+				 <div class="modal-footer">
+
+					 <button type="button" class="btn btn-default" data-dismiss="modal">キャンセル</button>
+	 				<button type="button" class="btn btn-primary" data-dismiss="modal"	id="withdrow_confirm">出金する</button>
+
+				 </div>
+			 </div><!-- /.modal-content -->
+		 </div><!-- /.modal-dialog -->
+	 </div><!-- /.modal -->
+
+	 <!-- モーダル・ダイアログ -->
+ 	<div class="modal fade" id="pincodeModal" tabindex="-1">
+ 		<div class="modal-dialog">
+ 			<div class="modal-content">
+ 				<div class="modal-header">
+ 					<button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+ 					<h4 class="modal-title" id="pincode_title">PINコードの確認</h4>
+ 				</div>
+ 				<div class="modal-body">
+ 					<form class="form-horizontal" >
+ 						<div class="form-group">
+ 							<label class="col-sm-2 control-label">PINコード</label><div class="col-sm-10"><input type="text" class="form-control" id="pincode_form" ></div>
+ 						</div>
+
+ 					</form>
+ 				</div>
+ 				<div class="modal-footer">
+ 					<button type="button" class="btn btn-default" data-dismiss="modal">キャンセル</button>
+ 	 				<button type="button" class="btn btn-primary" data-dismiss="modal"	id="pincode_confirm">OK</button>
+ 				</div>
+ 			</div>
+ 		</div>
+ 	</div>
+	<!-- モーダル・ダイアログ -->
+	<div class="modal fade" id="mosaicModal" tabindex="-1">
+		<div class="modal-dialog">
+			<div class="modal-content">
+				<div class="modal-header">
+					<button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+					<h4 class="modal-title" id="mosaic_title">サムネイル画像の登録</h4>
+				</div>
+				<div class="modal-body">
+					<form class="form-horizontal" >
+						<div class="form-group">
+							<label class="col-sm-2 control-label">イメージ</label><div class="col-sm-10"><img src="" width='128px' id="mosaic_img_big" alt="[NoImg]"></div>
+						</div>
+						<div class="form-group">
+							<label class="col-sm-2 control-label">モザイク</label><div class="col-sm-10"><input type="text" class="form-control" id="mosaic_name" ></div>
+							<label class="col-sm-2 control-label">画像パス</label><div class="col-sm-10"><input type="text" class="form-control" id="mosaic_url" ></div>
+							<label class="col-sm-2 control-label">署名登録</label><div class="col-sm-10"><input type="checkbox" class="form-control" id="mosaic_sign" checked="checked"></div>
+						</div>
+
+					</form>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">キャンセル</button>
+	 				<button type="button" class="btn btn-primary" data-dismiss="modal"	id="mosaic_confirm">OK</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<div class="modal fade" id="lotteryModal" tabindex="-1">
+		<div class="modal-dialog">
+			<div class="modal-content">
+				<div class="modal-header">
+					<button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+					<h4 class="modal-title" id="mosaic_title">ねむ抽選の登録</h4>
+				</div>
+				<div class="modal-body">
+					<form class="form-horizontal" >
+
+						<div class="form-group">
+							<label class="col-sm-4 control-label">配布モザイク</label><div class="col-sm-8"><input type="text" class="form-control" id="prize_name" ></div>
+							<label class="col-sm-4 control-label">配布人数(30人まで)</label><div class="col-sm-8"><input type="text" class="form-control" id="prize_count" ></div>
+							<label class="col-sm-4 control-label">配布量(1人あたり)</label><div class="col-sm-8"><input type="text" class="form-control" id="prize_amount" ></div>
+							<label class="col-sm-4 control-label">募集ツイートID</label><div class="col-sm-8"><input type="text" class="form-control" id="original_id" ></div>
+							<label class="col-sm-4 control-label">締切り(今から○時間後)</label><div class="col-sm-8"><input type="text" class="form-control" id="finish_time" ></div>
+						</div>
+
+					</form>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">キャンセル</button>
+	 				<button type="button" class="btn btn-primary" data-dismiss="modal"	id="lottery_confirm">OK</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+
+
+
+
+
+
+</div>
+
+</body>
+</html>

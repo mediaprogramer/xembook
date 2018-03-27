@@ -1,0 +1,441 @@
+
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0">
+	<title>XEMReceiver</title>
+	<script src="http://code.jquery.com/jquery-1.10.2.js"></script>
+	<script>
+
+var NODES = Array(
+"alice2.nem.ninja",
+"alice3.nem.ninja",
+"alice4.nem.ninja",
+"alice5.nem.ninja",
+"alice6.nem.ninja",
+"alice7.nem.ninja"
+);
+
+var ACCOUNT_GET ;
+var ACCOUNT_TRANSFERS;
+var ACCOUNT_UNCONFIRMEDTRANSACTIONS;
+var defaultPort = ":7890";
+
+var getAccountEndpoint = function(address){
+
+    var targetNode =  NODES[Math.floor(Math.random() * NODES.length)] + defaultPort;
+		ACCOUNT_GET                      = "http://" + targetNode + "/account/get?address="           + address;
+		ACCOUNT_TRANSFERS                = "http://" + targetNode + "/account/transfers/all?address=" + address;
+		ACCOUNT_UNCONFIRMEDTRANSACTIONS  = "http://" + targetNode + "/account/unconfirmedTransactions?address=" + address;
+		return ACCOUNT_GET;
+}
+var getAccount = function(address){
+	var d = $.Deferred();
+    $.ajax({url: getAccountEndpoint(address) ,type: 'GET'}).then(
+        function(res){
+        	d.resolve(res);
+        },
+        function(res){
+            getAccount();
+        }
+    );
+	return d.promise();//Deferredをpromiseに変換
+}
+
+var JPY_XEM = 0;
+var ZAIF_JPY_XEM;
+
+var xem_price = 0;
+var inxem_amount = 0;
+var is_realtime = true;
+var conf_check;
+var unconf_check;
+var is_confirmed = false;
+
+$(function() {
+
+	function sendAjax(URL){
+		return $.ajax({url: URL ,type: 'GET'});
+	}
+
+	var dispAmount = function(amount){
+			if(amount < 1000000){
+				return "0." + paddingright(amount.toString(),0,6);
+			}else{
+				var str_amount = amount.toString();
+				var r = str_amount.slice(-6);
+				var l = str_amount.substring(0,str_amount.length - 6);
+				l = l.replace( /(\d)(?=(\d\d\d)+(?!\d))/g, '$1,');
+			}
+
+		return l + "." + r;
+	}
+	function paddingright(val,char,n){
+		for(; val.length < n; val= char + val);
+		return val;
+	}
+
+	var address ="";
+	if (1 < document.location.search.length) {
+		var query = document.location.search.substring(1);
+
+		var params = query.split('&');
+		var item = new Object();
+		for (var i = 0; i < params.length; i++) {
+			var element = params[i].split('=');
+			var index  = decodeURIComponent(element[0]);
+			var value = decodeURIComponent(element[1]);
+			item[index] = decodeURIComponent(value);
+		}
+		address = item["address"];
+	}
+
+	if( address == ""){
+		var address = prompt('NEMアドレスを入力してください',address);
+	}
+	address = address.replace( /-/g , "" ).toUpperCase();
+
+	$("#xembook"  ).attr("href", "/?address=" + address);
+	$("#submit_price").click(function(){
+		alert("XEM価格を固定し、注文用QRコードを出力します" );
+		var bill = '{"v":2,"type":2,"data":{"addr":"' + address + '","amount":' + xem_price + ',"msg":"'	+ $("#cnumber").val() + '"}}';
+		$("#receiverqr").attr("src","http://chart.apis.google.com/chart?chs=180x180&cht=qr&chl=" + bill);
+
+		is_realtime = false;
+		unconf_check = setInterval(function(){
+			console.log("start:unconf_check");
+			getAccount(address);
+			sendAjax(ACCOUNT_UNCONFIRMEDTRANSACTIONS).done(function(res){parse_unconfirm(res)});
+		},5000);
+	});
+
+	var hex2a = function hex2a(hexx) {
+		var hex = hexx.toString();
+		var str = '';
+		for (var i = 0; i < hex.length; i += 2) {
+				str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+		}
+		return str;
+	};
+
+	var parse_unconfirm = function(result){
+
+		var dataArray = result.data;
+		dataArray.some(function(val){
+			var tran = val.transaction;
+			var tran_message = "";
+			var plain_text = "";
+			if (     tran.type == 257){	tran_message = tran.message;
+			}else if(tran.type == 4100){tran_message = tran.otherTrans.message;
+			}
+
+			if (tran_message && 'payload' in tran_message){
+
+				var o = tran_message.payload;
+				if (o && o.length > 2 && o[0] === 'f' && o[1] === 'e') {
+						console.log("HEX: " + o.slice(2));
+				}else{
+					try {
+							plain_text = decodeURIComponent(escape(hex2a(o)));
+//							console.log("plain_text:" + plain_text);
+							if(plain_text == $("#cnumber").val()){
+								var $modal = $('.js-loading-bar'),
+								    $bar = $modal.find('.progress-bar');
+								progress(count);
+								$modal.modal('show');
+								clearInterval(unconf_check);
+								conf_check = setInterval(function(){
+									console.log("start:conf_check");
+									getAccount(address);
+									sendAjax(ACCOUNT_TRANSFERS).done(function(res){parse_transfers(res)});
+								},5000);
+
+							}
+//							console.log(plain_text);
+					} catch (e) {
+							console.log('invalid text input: ' + tran_message.payload);
+					}
+				}
+			}
+		});
+	};
+
+	var parse_transfers = function(result){
+
+		var dataArray = result.data;
+		dataArray.some(function(val){
+
+			var tran = val.transaction;
+			var tran_message = "";
+			var plain_text = "";
+			var tran_amount = 0;
+			if (tran.type == 257){
+
+				tran_message = tran.message;
+
+				//モザイクが存在した場合
+				var has_mosaic = false;
+				if(tran.mosaics){
+
+					for(key  in tran.mosaics){
+						has_mosaic = true;
+						var mosaic = tran.mosaics[key];
+						if(mosaic.mosaicId.name == "xem" && mosaic.mosaicId.namespaceId == "nem"){
+							tran_amount = mosaic.quantity;
+						}
+					}
+				}
+				//通常送金
+				if(!has_mosaic){
+					tran_amount = tran.amount;
+				}
+
+			}else if(tran.type == 4100){
+
+				alert("注意：署名が必要なマルチシグ送金です");
+
+				tran_message = tran.otherTrans.message;
+				if('amount' in tran.otherTrans){
+					tran_amount = tran.otherTrans.amount;
+				}
+			}
+
+			if (tran_message && 'payload' in tran_message){
+
+				var o = tran_message.payload;
+				if (o && o.length > 2 && o[0] === 'f' && o[1] === 'e') {
+						console.log("HEX: " + o.slice(2));
+				}else{
+					try {
+							plain_text = decodeURIComponent(escape(hex2a(o)));
+							if(plain_text == $("#cnumber").val()){
+								inxem_amount = tran_amount;
+								ticker = 50;
+								incr = 20;
+								is_confirmed=true;
+								clearInterval(conf_check);
+							}
+					} catch (e) {
+							plain_text = hex2a(o);
+							console.log('invalid text input: ' + tran_message.payload);
+					}
+				}
+			}
+		});
+	};
+
+	setInterval(function(){	zaif_check();},15000);
+	var zaif_check = function(){
+
+		if(is_realtime){
+			$.ajax({url: "http://13.113.193.148/xembook/lastprice2.json" ,type: 'GET',cache: false}).done(
+				function(res){
+					ZAIF_JPY_XEM = res.zaif;
+					$("#last_price").text( res.zaif + "円 / XEM");
+					dispXEM();
+			});
+		}
+	};
+	zaif_check();
+
+	$("#jpy_price").change(function() {
+		dispXEM();
+	});
+
+	function dispXEM(){
+//		if(is_realtime){
+			xem_price = Math.ceil($("#jpy_price").val() /	ZAIF_JPY_XEM * 1000000);
+			console.log(xem_price);
+			$("#xem_price").text(dispAmount(xem_price) + "XEM");
+//		}
+	}
+
+	// Setup
+	$('.js-loading-bar').modal({
+	  backdrop: 'static',
+	  show: false
+	});
+
+  var count = 0;
+	var ticker = 450;
+	var incr = 1;
+  function progress(count){
+    setTimeout(function(){
+      var $modal = $('.js-loading-bar');
+      count+=incr;
+      if(count >= 90 && is_confirmed == false) {
+				count == 90;
+			}
+      if(is_confirmed) {
+		      $modal.find('.progress-bar').css({'width':'100%'});
+			  setTimeout(function() {
+			    $modal.modal('hide').delay(800).queue(function(next) {
+						console.log(inxem_amount);
+						console.log(xem_price);
+						if (inxem_amount == xem_price){
+							alert("入金を確認しました。\n入金額:" +  dispAmount(inxem_amount) );
+						}else{
+							alert("入金額と請求額が異なります。\n入金額:" + dispAmount(inxem_amount) + ",請求額:" + dispAmount(xem_price) );
+						}
+						is_realtime = true;
+				    next();
+					});
+			  }, 1600);
+				return;
+      }
+      $modal.find('.progress-bar').css({'width':count+'%'});
+      progress(count);
+    },normRand(ticker, 50));
+  }
+
+	//ランダム正規分布(m=中央値,s=偏り)
+	var normRand = function (m, s) {
+		var a = 1 - Math.random();
+		var b = 1 - Math.random();
+		var c = Math.sqrt(-2 * Math.log(a));
+		if(0.5 - Math.random() > 0) {
+			return c * Math.sin(Math.PI * 2 * b) * s + m;
+		}else{
+			return c * Math.cos(Math.PI * 2 * b) * s + m;
+		}
+	};
+
+});
+
+	</script>
+
+	<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css" />
+	<script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+	<script>
+	  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+	  ga('create', 'UA-100421513-1', 'auto');
+	  ga('send', 'pageview');
+	</script>
+	<style>
+		/* #F3B232 */
+		/* #78B6D7 */
+		/* #56B5A4 */
+		body {
+			padding-bottom: 3rem;
+		}
+		h1 {
+			padding: 2rem;
+			margin: 0;
+			background-color: #78B6D7;
+			color: white;
+		}
+		h2 {
+			position: relative;
+			padding-left: 1.5rem;
+			border-left: 6px solid #78B6D7;
+		}
+		h2::before {
+			position: absolute;
+			left: -6px;
+			bottom: 0;
+			content: '';
+			width: 6px;
+			height: 50%;
+			background-color: #ccc;
+		}
+		h2::after {
+			position: absolute;
+			left: 0;
+			bottom: 0;
+			content: '';
+			width: 100%;
+			height: 0;
+			border-bottom: 1px solid #ccc;
+		}
+
+		tr:nth-child(even){
+			background-color: #eee;
+		}
+		th {
+			border-bottom: 1px dotted #ccc;
+			text-align: center;
+		}
+		td{
+			text-align: center;
+			padding: .5rem 1rem;
+		}
+
+		hr {
+			margin: 0;
+			border: none;
+			height: 10px;
+		}
+		.zigzag-orange-white {
+			background:
+				linear-gradient(-135deg, #78B6D7 5px, transparent 0) 0 5px,
+				linear-gradient(135deg,  #78B6D7 5px, #fff 0) 0 5px;
+			background-color: #333538;
+			background-position: left bottom;
+			background-repeat: repeat-x;
+			background-size: 10px 10px;
+		}
+		@media (max-width: 767px){
+			#clipboard {
+				display: none;
+			}
+		}
+		input.qr { width: 60px; }
+.progress-bar.animate {
+   width: 100%;
+	}
+	</style>
+
+</head>
+
+<body>
+<h1>XEMReceiver</h1>
+<hr class="zigzag-orange-white">
+<div class="container">
+	<div class="form">
+		<h2>注文情報</h2>
+		<dl>
+			<dt>伝票番号</dt>
+			<dd><input id="cnumber" type="text" value=""></dd>
+			<dt>価格(JPY)</dt>
+			<dd><input id="jpy_price" type="text" value="0"  >円</dd>
+		</dl>
+		<h2>価格情報</h2>
+		<dl>
+			<dt>現在のレート</dt>
+			<dd><span id="last_price"></span></dd>
+			<dt>XEM価格（参考値）</dt>
+			<dd><span id="xem_price"></span></dd>
+		</dl>
+		<h2>ご注文</h2>
+		<ul class="list-unstyled">
+		<li><button id="submit_price" type="button" class="btn btn-default">現在価格で確定</button></li>
+		<li><img id="receiverqr" src="" alt="" width="180" height="180"></li>
+		</ul>
+
+		<h2>確認</h2>
+		<dl>
+			<dd><a id="xembook" href="">XEMBookで確認</a></dd>
+		</dl>
+
+	</div>
+<!-- <button id="load">Load It!</button> -->
+<div class="modal js-loading-bar">
+ <div class="modal-dialog">
+   <div class="modal-content">
+     <div class="modal-body">
+       <div class="progress progress-popup">
+        <div class="progress-bar progress-bar-striped active"></div>
+       </div>
+        <div>トランザクション確認中</div>
+     </div>
+   </div>
+ </div>
+</div>
+
+</div>
+</body>
+</html>
