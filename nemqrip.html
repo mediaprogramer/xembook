@@ -1,0 +1,296 @@
+<html lang="ja">
+<head>
+
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0">
+	<link rel="apple-touch-icon" href="icon.png">
+	<script src="http://code.jquery.com/jquery-1.10.2.js"></script>
+	<script src="https://cdn.jsdelivr.net/clipboard.js/1.5.3/clipboard.min.js"></script>
+	<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css" />
+	<link rel="stylesheet" href="style.css" />
+	<script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+
+
+	<script type="text/javascript" src="qrjs/megapix-image.js"></script>
+	<script type="text/javascript" src="qrjs/grid.js"></script>
+	<script type="text/javascript" src="qrjs/version.js"></script>
+	<script type="text/javascript" src="qrjs/detector.js"></script>
+	<script type="text/javascript" src="qrjs/formatinf.js"></script>
+	<script type="text/javascript" src="qrjs/errorlevel.js"></script>
+	<script type="text/javascript" src="qrjs/bitmat.js"></script>
+	<script type="text/javascript" src="qrjs/datablock.js"></script>
+	<script type="text/javascript" src="qrjs/bmparser.js"></script>
+	<script type="text/javascript" src="qrjs/datamask.js"></script>
+	<script type="text/javascript" src="qrjs/rsdecoder.js"></script>
+	<script type="text/javascript" src="qrjs/gf256poly.js"></script>
+	<script type="text/javascript" src="qrjs/gf256.js"></script>
+	<script type="text/javascript" src="qrjs/decoder.js"></script>
+	<script type="text/javascript" src="qrjs/qrcode.js"></script>
+	<script type="text/javascript" src="qrjs/findpat.js"></script>
+	<script type="text/javascript" src="qrjs/alignpat.js"></script>
+	<script type="text/javascript" src="qrjs/databr.js"></script>
+	<script>
+
+$(document).ready(function() {
+
+	var clipboard = new Clipboard('#clipboard');
+	clipboard.on('success', function(e) {
+		e.clearSelection();
+		alert("クリップボードにコピーしました。");
+	});
+
+	var isJSON = function(arg) {
+	    arg = (typeof arg === "function") ? arg() : arg;
+	    if (typeof arg  !== "string") {
+	        return false;
+	    }
+	    try {
+	    arg = (!JSON) ? eval("(" + arg + ")") : JSON.parse(arg);
+	        return true;
+	    } catch (e) {
+	        return false;
+	    }
+	};
+
+	var result = $('#result');
+
+	var threshold ;
+	var max_threshold = 170;
+	var min_threshold = 100;
+
+	var max_noise = 5; // 3 , 4, 2
+	var ini_noise = 3;
+	var canvas  = document.getElementById('qr-canvas');
+	var ctx  = canvas.getContext("2d");
+	var canvas2 = document.getElementById('qr-canvas2');
+	var ctx2 = canvas2.getContext("2d");
+	var canvas_size = 300;
+	var capture_size = canvas_size;
+	var capture_min = 170;
+	$('#qr-canvas2').attr('width', canvas_size);
+	$('#qr-canvas2').attr('height', canvas_size);
+	qrcode.callback = function(res) {
+
+		if (res == 'error decoding QR Code') {
+
+			result.text('解析中：thold' + threshold.toString() + ",nsize:" +max_noise.toString());
+
+//			if (     max_noise == 3){max_noise = 4;}
+//			else if (max_noise == 4){max_noise = 2;}
+//			else{ max_noise = 3;
+//				threshold -= 2;
+//			}
+
+			if (     max_noise == 5){max_noise = 4;}
+			else if (max_noise == 4){max_noise = 3;}
+			else{ max_noise = 5;
+				threshold -= 2;
+			}
+
+//			if (threshold > min_threshold){
+
+			if (capture_size >= capture_min){
+
+				binarization( threshold,max_noise);
+				var resized_data = canvas2.toDataURL("image/png");
+				qrcode.decode(resized_data);
+				// 140->60
+				if( threshold < min_threshold ){
+					threshold = max_threshold;
+					capture_size -= 30;
+				}
+			}else{
+				result.text('解析に失敗しました。お手数ですがピントが合うギリギリまで近づいてもう一度撮影してください');
+
+
+			}
+		} else {
+			if(isJSON(res)){
+				console.log(JSON.parse(res));
+				$("#full_address").val(JSON.parse(res).data.addr);
+				$("#plain_address" ).text(JSON.parse(res).data.addr);	
+				$("#xembook"       ).attr("href", "/?address=" + JSON.parse(res).data.addr);
+
+			}else{
+
+				$("#full_address").val(res);
+				$("#plain_address" ).text(res);
+				$("#xembook"       ).attr("href", "/?address=" + res);
+			}
+
+
+			result.text('解析完了！：thold' + threshold.toString() + ",nsize:" +max_noise.toString());
+		}
+	};
+	var lastBlackBorder;
+	var dst;
+	function binarization( blackBorder,max_noise) {
+
+		var diff_size = 0;
+		var src;
+		if((canvas.width  - canvas.height)>0){
+			diff_size = (canvas.width  - canvas.height) / 2;
+			src  = ctx.getImageData( diff_size,0,capture_size,capture_size);
+
+		}else{
+			diff_size = (canvas.height - canvas.width   ) / 2;
+			src  = ctx.getImageData( 0,diff_size,capture_size,capture_size);
+		}
+	//		if(lastBlackBorder != blackBorder){
+			dst  = ctx.createImageData(capture_size, capture_size);
+			dst  = get_binarization_image(src,dst,blackBorder);
+			lastBlackBorder = blackBorder;
+//		}
+		var dst2 = ctx.createImageData(capture_size, capture_size);
+
+		dst2 = get_noise_clear_image( src,dst,dst2,capture_size * 4,max_noise);
+		ctx2.clearRect(0, 0, canvas_size, canvas_size);
+		ctx2.putImageData(dst2, 0, 0,(canvas_size - capture_size) / 2,(canvas_size - capture_size) / 2,capture_size,capture_size);
+	}
+
+
+	function get_binarization_image(src,dst,blackBorder){
+		var srcDataLength = src.data.length;
+		for (var i = 0; i < srcDataLength; i += 4) {
+			var v = src.data[i] + src.data[i + 1] + src.data[i + 2];
+			var c;
+			if (v <= blackBorder * 3) {
+				c = 0;
+			} else {
+				c = 255;
+			}
+
+			dst.data[i] = c;
+			dst.data[i+1] = c;
+			dst.data[i+2] = c;
+			dst.data[i+3] = 255;
+		}
+		return dst;
+	}
+	function get_noise_clear_image(src,dst,dst2,udindex,max_noise){
+
+		var srcDataLength = src.data.length;
+		for (var i = 0; i < srcDataLength; i += 4) {
+
+			var c = dst.data[i];
+			if(c == 0 && i - udindex - 4 >= 0 && i + udindex +4 < srcDataLength){
+
+				var noise = 0;
+				if(dst.data[i - udindex    ] == 0){ noise++; }
+				if(dst.data[i - udindex - 4] == 0){ noise++; }
+				if(dst.data[i - udindex + 4] == 0){ noise++; }
+				if(dst.data[i - 4 	       ] == 0){ noise++; }
+				if(dst.data[i + 4 	       ] == 0){ noise++; }
+				if(dst.data[i + udindex - 4] == 0){ noise++; }
+				if(dst.data[i + udindex    ] == 0){ noise++; }
+				if(dst.data[i + udindex + 4] == 0){ noise++; }
+
+				if ( noise <= max_noise){	c = 255;}
+			}
+			dst2.data[i] = c;
+			dst2.data[i+1] = c;
+			dst2.data[i+2] = c;
+			dst2.data[i+3] = 255;
+		}
+		return dst2;
+	}
+
+	function loadImage(fileID) {
+		threshold = max_threshold;
+		max_noise = ini_noise;
+		var fileList = document.getElementById(fileID).files;
+		var reader = new FileReader();
+		file = fileList[0];
+		if (file.type == 'image/jpeg' || file.type == 'image/png'){
+			reader.readAsDataURL(file, "utf-8");
+			reader.onload = (function(theFile) {
+				return function(e) {
+					capture_size = canvas_size;
+					var data = e.target.result;
+					var img = new Image();
+					img.src = data;
+					img.onload = function() {
+
+						var resizedWidth  = img.width;
+						var resizedHeight = img.height;
+
+						if (resizedWidth > canvas_size || resizedHeight > canvas_size) {
+							var s;
+							if (resizedWidth > resizedHeight) {
+								s = canvas_size / resizedHeight;
+							} else {
+								s = canvas_size / resizedWidth;
+							}
+							resizedWidth  *= s;
+							resizedHeight *= s;
+						}else{
+
+							ctx2.drawImage(img,0,0,img.width,img.height,0,0,canvas_size,canvas_size);
+							resizedWidth  = canvas_size;
+							resizedHeight = canvas_size;
+							//$('#qr-canvas2').attr('width', resizedWidth);
+							//$('#qr-canvas2').attr('height', resizedHeight);
+						}
+
+						canvas.width  = resizedWidth;
+						canvas.height = resizedHeight;
+
+						var mpImg = new MegaPixImage(img);
+						mpImg.render(canvas, { width: canvas.width, height: canvas.height });
+						binarization(threshold,max_noise);
+						var resized_data = canvas2.toDataURL("image/png");
+						qrcode.decode(resized_data);
+					};
+				};
+			})(file);
+		} else {
+			alert('JPEGかPNGファイルをアップして下さい');
+		}
+	}
+	$('#file').change(function(e) {
+		loadImage('file');
+	});
+});
+</script>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+  ga('create', 'UA-100421513-1', 'auto');
+  ga('send', 'pageview');
+</script>
+	<title>NEMQRip</title>
+</head>
+<body>
+<h1>NEMQRip</h1>
+<hr class="zigzag-orange-white">
+<div class="container">
+<div >
+<p>
+	<form>
+
+		<input type="file" id="file" >
+	</form>
+</p>
+	<p id="result"></p>
+	<div>
+		<h2>出力アドレス</h2>
+		<ul class="list-inline">
+		<li><input id="full_address" type="textarea" value="" onclick="this.setSelectionRange(0,9999);" readonly></li>
+		<li><button id="clipboard" type="button" class="btn btn-default" data-clipboard-target="#full_address">Copy</button></li>
+		</ul>
+
+		<dl>
+			<dd><span id="plain_address"></dd>
+			<dd><a id="xembook" href="">XEMBookで開く</a></dd>
+		</dl>
+	</div>
+
+	<canvas id="qr-canvas2"></canvas><br>
+		<canvas id="qr-canvas"></canvas>
+
+</div>
+</div>
+</body>
+</html>
