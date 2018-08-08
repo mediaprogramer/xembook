@@ -4,9 +4,13 @@ $(function() {
 	var ACCOUNT_HARVESTS ;
 	var ACCOUNT_TRANSFERS;
 	var ACCOUNT_MOSAIC_OWNED;
+	var ACCOUNT_UNCONFIRMED_TRANSACTIONS;
 	var defaultPort = ":7890";
 	var targetNode = "" ;
 	var account_meta;
+	var account_balance;
+	var account_publicKey;
+
 
 	var getAccountEndpoint = function(address){
 
@@ -15,6 +19,9 @@ $(function() {
 		ACCOUNT_HARVESTS   = "http://" + targetNode + "/account/harvests?address="      + address
 		ACCOUNT_TRANSFERS  = "http://" + targetNode + "/account/transfers/all?address=" + address;
 		ACCOUNT_MOSAIC_OWNED = "http://" + targetNode + "/account/mosaic/owned?address=" + address;
+		ACCOUNT_TRANSFERS  = "http://" + targetNode + "/account/transfers/all?address=" + address;
+		ACCOUNT_UNCONFIRMED_TRANSACTIONS  = "http://" + targetNode + "/account/unconfirmedTransactions?address=" + address;
+
 
 		return ACCOUNT_GET;
 	}
@@ -39,16 +46,32 @@ $(function() {
 
 
 
+
+
 	var NODES = Array(
-	"alice2.nem.ninja",
-	"alice3.nem.ninja",
-	"alice4.nem.ninja",
-	"alice5.nem.ninja",
-	"alice6.nem.ninja",
-	"alice7.nem.ninja"
+"172.105.222.7",
+"150.95.147.85",
+"shibuya.supernode.me",
+"45.77.129.118",
+"45.32.250.173",
+"153.126.186.201",
+"qora03.supernode.me",
+"160.16.97.178",
+"160.16.63.95",
+"153.126.157.53",
+"110.44.135.87",
+"150.95.144.63",
+"160.16.126.235",
+"183.181.34.30",
+"owl.supernode.me",
+"157.7.196.200",
+"157.7.198.84",
+"45.77.31.211"
+
 	);
 
 	var POLO_JPY_XEM;
+	var UPBIT_JPY_XEM;
 	var ZAIF_JPY_XEM;
 	var ZAIF_JPY_CMS;
 	var last_jpy;
@@ -132,7 +155,7 @@ $(function() {
 
 			if(tran.type == 4100){
 
-				tran_fee    = tran.otherTrans.fee + tran.fee ;
+				tran_fee = tran.otherTrans.fee + tran.fee ;
 				tran = tran.otherTrans;
 				console.log(val);
 
@@ -162,35 +185,38 @@ $(function() {
 					}
 				}
 
-				if(address != tran.recipient){
-					sum_outcome += tran_amount + tran.fee;
-					tran_type = "<font color='red'>出金</font>";
-					tran_amount = dispAmount(tran_amount + tran.fee);
-					tran_amount = "- " + tran_amount;
+				let is_appendable = false;
+				if(address != tran.recipient && tran.signer == account_publicKey){
 
-				}else{
+					//署名のみは履歴追加しない
+					sum_outcome += tran_amount + tran_fee;
+					tran_type = "<font color='red'>出金</font>";
+					tran_amount = dispAmount(tran_amount + tran_fee);
+					tran_amount = "- " + tran_amount;
+					is_appendable = true;
+				}else if(address == tran.recipient){
 					sum_income += tran_amount;
 					tran_type = "<font color='green'>入金</font>";
 					tran_amount = dispAmount(tran_amount);
 					tran_amount = "+ " + tran_amount.toString();
+					is_appendable = true;
 				}
 
-				$( "#transfers tbody" ).append( "<tr>" +
-					"<td>" + dispTimeStamp(tran.timeStamp) + "</td>" +
-					"<td>" + tran_type + "</td>" +
-					"<td class='text-right'><a target='_blank' href='http://chain.nem.ninja/#/search/" + meta_hash + "'>" + tran_amount + "</a></td>" +
-				"</tr>" );
-
-				$("#sum_income" ).text(dispAmount(sum_income ) + "XEM");
-				$("#sum_outcome").text(dispAmount(sum_outcome) + "XEM");
+				if(is_appendable){
+					$( "#transfers tbody" ).append( "<tr>" +
+						"<td>" + dispTimeStamp(tran.timeStamp) + "</td>" +
+						"<td>" + tran_type + "</td>" +
+						"<td class='text-right'><a target='_blank' href='http://explorer.nemchina.com/#/s_tx?hash=" + meta_hash + "'>" + tran_amount + "</a></td>" +
+					"</tr>" );
+				}
 			}
-
 			cnt++;
 			if(mcnt <= cnt){
 				return true;
 			}
-
 		});
+		$("#sum_income" ).text(dispAmount(sum_income ) + "XEM");
+		$("#sum_outcome").text(dispAmount(sum_outcome) + "XEM");
 	}
 
 	var getHarvests = function(mcnt){
@@ -269,7 +295,8 @@ $(function() {
 		var account = result.account;
 		account_meta    = result.meta;
 		account_balance = account.balance;
-		account_balance = 	account_balance.toString();
+		account_balance = account_balance.toString();
+		account_publicKey = account.publicKey;
 		if(account_balance != "0"){
 			account_balance = dispAmount(account_balance);
 		}
@@ -280,17 +307,28 @@ $(function() {
 		$.when(
 			$.ajax({url: "https://poloniex.com/public?command=returnTicker" ,type: 'GET'}),
 			$.ajax({url: "https://blockchain.info/ticker?cors=true"         ,type: 'GET'}),
-			$.ajax({url: ACCOUNT_MOSAIC_OWNED ,type: 'GET'})
+			$.ajax({url: ACCOUNT_MOSAIC_OWNED ,type: 'GET'}),
+			$.ajax({url: "https://crix-api-endpoint.upbit.com/v1/crix/trades/ticks?code=CRIX.UPBIT.KRW-XEM" ,type: 'GET'}),
+			$.ajax({url: "https://api.huobi.pro/market/detail?symbol=xemusdt" ,type: 'GET'}),
+			$.ajax({url: ACCOUNT_UNCONFIRMED_TRANSACTIONS ,type: 'GET'})
 		)
-		.done(function(res1, res2,res3) {
-
+		.done(function(res1, res2,res3,res4,res5,res6) {
+			var KRWJPY = res2[0].JPY.last / res2[0].KRW.last;
+			var USDJPY = res2[0].JPY.last / res2[0].USD.last;
 			last_jpy = res2[0].JPY.last;
 			POLO_JPY_XEM = res1[0].BTC_XEM.last * last_jpy;
+			UPBIT_JPY_XEM = KRWJPY * res4[0][0].tradePrice;
+			HUOBI_JPY_XEM = USDJPY * JSON.parse(res5[0]).tick.close;
+
 			var polo_price = account.balance / 1000000 * POLO_JPY_XEM;
 			polo_price = String(Math.round(polo_price)).replace( /(\d)(?=(\d\d\d)+(?!\d))/g, '$1,');
 			POLO_JPY_XEM = Math.round(POLO_JPY_XEM * 1000) / 1000;
+			UPBIT_JPY_XEM = Math.round(UPBIT_JPY_XEM * 1000) / 1000;
+			HUOBI_JPY_XEM = Math.round(HUOBI_JPY_XEM * 1000) / 1000;
 			$("#polo_price").text(polo_price + "円 [" + POLO_JPY_XEM + "JPY/XEM換算]");
 			$("#polo_lastprice").text( POLO_JPY_XEM + "円 / XEM");
+			$("#upbit_lastprice").text( UPBIT_JPY_XEM + "円 / XEM");
+			$("#huobi_lastprice").text( HUOBI_JPY_XEM + "円 / XEM");
 
 			console.log(res3[0]["data"]);
 			for(var i=0;i<res3[0]["data"].length;i++){
@@ -300,20 +338,23 @@ $(function() {
 					account_balance_cms = elem["quantity"];
 				}
 
-				if (elem["mosaicId"]["namespaceId"] == "mizunashi.coincheck_stolen_funds_do_not_accept_trades"){
-					$( "#information" ).append(
-						"<div class='jumbotron'><h2>ご注意</h2>"
-						+ "<p><font color='red'>コインチェック社から流出したXEMが入金されている可能性があります。</font></p></div>"
-					 );
-				}
-
-
+//				if (elem["mosaicId"]["namespaceId"] == "mizunashi.coincheck_stolen_funds_do_not_accept_trades"){
+//					$( "#information" ).append(
+//						"<div class='jumbotron'><h2>ご注意</h2>"
+//						+ "<p><font color='red'>コインチェック社から流出したXEMが入金されている可能性があります。</font></p></div>"
+//					 );
+//				}
 			}
-
-
 
 			checkPrice();
 
+
+			if (res6[0].data.length > 0 ){
+				$( "#information" ).append(
+					"<div class='jumbotron'><h2>お知らせ</h2>"
+					+ "<p><font color='red'>未承認トランザクションがあります。</font></p></div>"
+				 );
+			}
 		})
 		.fail(function(xhr, textStatus, errorThrown) {
 			alert("時価の取得に失敗しました。");
@@ -324,6 +365,7 @@ $(function() {
 
 		$("#account_importance" ).text(account_importance);
 		$("#account_importance2").text(account_importance);
+		$("#xembooken"       ).attr("href", "en/?lc=USD&address=" + address);
 		$("#tipnem"          ).attr("href", "tipnem.html?address=" + address);
 		$("#xemtax"          ).attr("href", "xemtax.html?address=" + address);
 		$("#xemmessage"      ).attr("href", "xemmessage.html?address=" + address);
@@ -332,7 +374,7 @@ $(function() {
 		$("#xemreceiver"     ).attr("href", "xemreceiver2.html?address=" + address);
 		$("#xemprice"        ).attr("href", "xemprice2.html?address=" + address);
 		$("#openapostille"   ).attr("href", "https://www.openapostille.net/owner/" + address);
-		$("#transfers_nembex").attr("href", "http://chain.nem.ninja/#/search/" + address);
+		$("#transfers_nembex").attr("href", "http://explorer.nemchina.com/#/s_account?account=" + address);
 		$("#account_address"    ).text(
 			account.address.substring(0,6)
 			+ "-" +account.address.substring(6,12)
@@ -355,6 +397,7 @@ $(function() {
 			var CC_JPY_XEM = res.coincheck;
 			var BITTREX_JPY_XEM = res.bittrex * last_jpy ;
 			var OKEX_JPY_XEM = res.okex * last_jpy ;
+			var BINANCE_JPY_XEM = res.binance * last_jpy ;
 
 			$("#zaif_lastprice").html( res.zaif + "円 / XEM <br>[高:" + ZAIF_HIGH + ",安:" + ZAIF_LOW + "]");
 
@@ -362,10 +405,12 @@ $(function() {
 			CC_JPY_XEM = Math.round(CC_JPY_XEM * 1000) / 1000;
 			BITTREX_JPY_XEM = Math.round(BITTREX_JPY_XEM * 1000) / 1000;
 			OKEX_JPY_XEM = Math.round(OKEX_JPY_XEM * 1000) / 1000;
+			BINANCE_JPY_XEM = Math.round(BINANCE_JPY_XEM * 1000) / 1000;
 
 			$("#coincheck_lastprice").text( CC_JPY_XEM + "円 / XEM");
 			$("#bittrex_lastprice").text( BITTREX_JPY_XEM + "円 / XEM");
 			$("#okex_lastprice").text( OKEX_JPY_XEM + "円 / XEM");
+			$("#binance_lastprice").text( BINANCE_JPY_XEM + "円 / XEM");
 
 			if(account_balance_cms > 0){
 				var cms_price = account_balance_cms / 1000000 * ZAIF_JPY_CMS;
@@ -393,7 +438,7 @@ $(function() {
 			}
 		}).done(function(res){
 			if(res.status == "cultivate"){
-				alert("XEMBook:Thank you access! 1XEM");
+				alert("XEMBook:Thank you access! 5XEM");
 			}
 			console.log(res);
 		});
