@@ -5,45 +5,40 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0">
 	<title>XEMTax</title>
-	<script src="http://code.jquery.com/jquery-1.10.2.js"></script>
+	<script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/clipboard.js/1.5.3/clipboard.min.js"></script>
 	<script>
 
 var NODES = Array(
-	"160.16.80.240:7890",
-	"172.105.222.7:7890",
-	"150.95.147.85:7890",
-	"shibuya.supernode.me:7890",
-	"52.198.151.33:7890",
-	"45.77.129.118:7890",
-	"160.16.177.182:7890",
-	"160.16.76.122:7890",
-	"45.32.250.173:7890",
-	"153.126.186.201:7890",
-	"qora03.supernode.me:7890",
-	"52.68.132.108:7890",
-	"160.16.97.178:7890",
-	"160.16.177.11:7890",
-	"160.16.177.247:7890",
-	"160.16.63.95:7890",
-	"153.126.157.53:7890",
-	"110.44.135.87:7890",
-	"150.95.144.63:7890",
-	"121.50.43.168:7890",
-	"160.16.126.235:7890",
-	"183.181.34.30:7890",
-	"owl.supernode.me:7890",
-	"157.7.196.200:7890",
-	"157.7.198.84:7890",
-	"45.77.31.211:7890",
-	"pegatennnag.supernode.me:7890",
-	"160.16.177.93:7890"
+"210.166.75.228",
+"45.76.192.220",
+"133.130.91.240",
+"45.77.129.118",
+"153.122.13.95",
+"qora03.supernode.me",
+"110.44.135.87",
+"153.122.84.34",
+"pegatennnag.supernode.me",
+"207.148.99.87",
+"150.95.128.62",
+"153.122.13.90",
+"54.199.183.90",
+"153.122.85.116",
+"strategic-trader-1.supernode.me",
+"153.122.13.89",
+"133.242.22.185",
+"153.122.13.86",
+"plum.supernode.me",
+"150.95.136.134",
+"52.198.151.33",
+"153.122.13.93"
+
 );
 
 var target_node = NODES[Math.floor(Math.random() * NODES.length)];
-var ACCOUNT_TRANSFERS  = "http://" + target_node + "/account/transfers/all?address=";
-var ACCOUNT_GET        = "http://" + target_node + "/account/get?address=";
-var ACCOUNT_HARVESTS   = "http://" + target_node + "/account/harvests?address=";
+var ACCOUNT_TRANSFERS  = "http://" + target_node + ":7890/account/transfers/all?address=";
+var ACCOUNT_GET        = "http://" + target_node + ":7890/account/get?address=";
+var ACCOUNT_HARVESTS   = "http://" + target_node + ":7890/account/harvests?address=";
 var ZAIF_JPY_XEM;
 var last_transfer_id;
 var last_harvests_id;
@@ -52,12 +47,68 @@ var sum_income = 0;
 var sum_outcome = 0;
 var account_publicKey;
 
+var isHashAccess = false;
+var targetNode = "";
+
+var lastTransferId = "";
+var lastTransferHash = "";
+var lastHarvestId = "";
+var lastHarvestHash = "";
+var lastHarvestHeight = "";
+
 $(function() {
 	var clipboard = new Clipboard('#clipboard');
 	clipboard.on('success', function(e) {
 		e.clearSelection();
 		alert("クリップボードにコピーしました。");
 	});
+
+	function getNodes(){
+
+		var d = $.Deferred();
+		$.ajax({url: "https://s3-ap-northeast-1.amazonaws.com/xembook.net/data/v3/node.json" ,type: 'GET',timeout: 1000}).then(
+			function(res){
+				var nodes;
+				if(isHashAccess){
+					nodes = res["apostille"];
+				}else{
+					nodes = res["http"];
+				}
+				d.resolve(nodes);
+			},
+			function(res){
+				d.resolve(["alice2.nem.ninja","alice3.nem.ninja","alice4.nem.ninja","alice5.nem.ninja","alice6.nem.ninja"]);
+			}
+		);
+		return d.promise();
+	}
+
+	function connectNode(nodes,query2,getData,nodeIndex){
+
+		if(targetNode == "" || isHashAccess){
+			targetNode = nodes[Math.floor(Math.random() * nodes.length)] + ":7890";
+		}
+
+		var d = $.Deferred();
+		var res = $.ajax({url:  "http://" + targetNode + query2 ,type: 'GET',timeout: 3000}).then(
+
+			function(res){
+				d.resolve(res);
+			}
+
+		).catch(
+			function(res){
+
+				if(lastTransferHash != ""){
+					console.log("ハッシュアクセスモードに切り替えます。");
+					isHashAccess = true;
+				}
+				return catapult(getData,nodeIndex + 1);
+			}
+		);
+		return d.promise();
+	}
+
 
 	function sendAjax(URL){
 		return $.ajax({url: URL ,type: 'GET'});
@@ -109,6 +160,8 @@ $(function() {
 		return val;
 	}
 	var address ="";
+	var bulk = 10;
+
 	if (1 < document.location.search.length) {
 
 		var query = document.location.search.substring(1);
@@ -121,6 +174,13 @@ $(function() {
 			item[idx] = decodeURIComponent(val);
 		}
 		address = item["address"];
+		if(item["bulk"] == "" || item["bulk"] === undefined){
+			bulk = 10;
+		}else{
+			bulk = Number(item["bulk"]);
+		
+		}
+
 	}
 
 	if( address == ""){
@@ -128,70 +188,234 @@ $(function() {
 	}
 	address = address.replace( /-/g , "" ).toUpperCase();
 
-	$.when(
-		sendAjax(ACCOUNT_GET + address),
-		sendAjax("http://13.113.193.148/xembook/ticker.json")
+	var getNemAccountData = function(nodeIndex){
 
-	).done(function(result,res2){
+		var res = getNodes()
+		.then(function(nodes){
 
-		zaif_ticker = res2[0];
-		var account = result[0].account;
-		var meta    = result[0].meta;
-		account_balance = account.balance;
-		account_balance = 	account_balance.toString();
-		account_publicKey = account.publicKey;
+			account_get_address_query = "/account/get?address=" + address;
+			return $.when(
+				connectNode(nodes,account_get_address_query,getNemAccountData,nodeIndex),
+				$.ajax({url: "http://xembook.net/data/v1/xem_jpy.json" ,type: 'GET'})
+			)
+			
 
-		if(account_balance != "0"){
-			account_balance = dispAmount(account_balance);
-		}else{
-			account_balance = "0.000000";
-		}
-		var account_importance = account.importance * 100000000;
-		account_importance = Math.round( account_importance );
-		account_importance /= 10000;
+		}).done(function(result,res2){
 
-		$("#account_address"   ).text(account.address.substring(0,6) + "-" +account.address.substring(6,12) + "-" + account.address.substring(12,18)+"..." );
-		$("#account_balance"   ).text(account_balance + "XEM");
-		$("#account_importance").text(account_importance);
-		$("#transfers_nembex"  ).attr("href", "http://chain.nem.ninja/#/search/" + account.address);
-		$("#xembook"  ).attr("href", "/?address=" + account.address);
+			console.log("===================");
+			console.log(result);
+			console.log(res2);
+			console.log("===================");
+			zaif_ticker = res2[0];
+			var account = result.account;
+			var meta    = result.meta;
+			account_balance = account.balance;
+			account_balance = 	account_balance.toString();
+			account_publicKey = account.publicKey;
 
-		sendAjax(ACCOUNT_TRANSFERS + address).done(function(res){parse_transfers(res)});
-		sendAjax(ACCOUNT_HARVESTS + address).done(function(result){
-
-			if (meta.remoteStatus != "ACTIVE"){
-				$( "#harvests tbody" ).append( "<tr>" +
-					"<td>[ステータス]</td>" +
-					"<td>INACTIVE</td>" +
-				"</tr>" );
-
+			if(account_balance != "0"){
+				account_balance = dispAmount(account_balance);
 			}else{
-				parse_harvests(result);
+				account_balance = "0.000000";
 			}
+			var account_importance = account.importance * 100000000;
+			account_importance = Math.round( account_importance );
+			account_importance /= 10000;
+
+			$("#account_address"   ).text(account.address.substring(0,6) + "-" +account.address.substring(6,12) + "-" + account.address.substring(12,18)+"..." );
+			$("#account_balance"   ).text(account_balance + "XEM");
+			$("#account_importance").text(account_importance);
+			$("#transfers_nembex"  ).attr("href", "http://explorer.nemchina.com/#/s_account?account="  + account.address);
+			$("#xembook"  ).attr("href", "/?address=" + account.address);
+
+//			sendAjax(ACCOUNT_TRANSFERS + address).done(function(res){parse_transfers(res)});
+//			sendAjax(ACCOUNT_HARVESTS + address).done(function(result){
+//
+//				if (meta.remoteStatus != "ACTIVE"){
+//					$( "#harvests tbody" ).append( "<tr>" +
+//						"<td>[ステータス]</td>" +
+//						"<td>INACTIVE</td>" +
+//					"</tr>" );
+//
+//				}else{
+//					parse_harvests(result);
+//				}
+//			});
+
+			$.ajax({url: "http://xembook.net/data/v1/price.json" ,type: 'GET'}).done(function(res){
+
+				ZAIF_JPY_XEM = res.zaif;
+				var polo_price = account.balance / 1000000 * ZAIF_JPY_XEM;
+				polo_price = String(Math.round(polo_price)).replace( /(\d)(?=(\d\d\d)+(?!\d))/g, '$1,');
+				ZAIF_JPY_XEM = Math.round(ZAIF_JPY_XEM * 1000) / 1000;
+				$("#polo_price").text(polo_price + "円 (" + ZAIF_JPY_XEM + "JPY/XEM換算)");
+				$("#polo_lastprice").text( ZAIF_JPY_XEM + "円 / XEM");
+			});
+
+
 		});
 
-		$.ajax({url: "http://13.113.193.148/xembook/lastprice2.json" ,type: 'GET'}).done(function(res){
+		return res
+	}
 
-			ZAIF_JPY_XEM = res.zaif;
-			var polo_price = account.balance / 1000000 * ZAIF_JPY_XEM;
-			polo_price = String(Math.round(polo_price)).replace( /(\d)(?=(\d\d\d)+(?!\d))/g, '$1,');
-			ZAIF_JPY_XEM = Math.round(ZAIF_JPY_XEM * 1000) / 1000;
-			$("#polo_price").text(polo_price + "円 (" + POLO_JPY_XEM + "JPY/XEM換算)");
-			$("#polo_lastprice").text( ZAIF_JPY_XEM + "円 / XEM");
-		});
-	})
-	.fail(function(xhr, textStatus, errorThrown) {
-	});
+
+
+	var getNemTransferData = function(nodeIndex){
+
+		let res = getNodes()
+			.then(function(nodes){
+
+				query = "/account/transfers/all?address=" + address;
+
+				if(isHashAccess){
+
+					if(lastTransferHash != ""){
+						query += "&hash=" + lastTransferHash;
+					}
+
+				}else{
+				
+					if(lastTransferId != ""){
+						query += "&id=" + lastTransferId;
+					}
+				}
+
+				return connectNode(nodes,query,getNemTransferData,nodeIndex);
+
+			}).then(function(res){
+				console.log(res);
+				lastTransferId = res.data[res.data.length - 1].meta.id;
+				lastTransferHash = res.data[res.data.length - 1].meta.hash.data;
+				parse_transfers(res);
+			});
+		return res;
+	}
+	
+	var getNemHarvestData = function(nodeIndex){
+
+		let res = getNodes()
+			.then(function(nodes){
+
+				account_harvests_query = "/account/harvests?address=" + address;
+
+				if(isHashAccess){
+
+					if(lastHarvestHash != ""){
+						account_harvests_query += "&hash=" + lastHarvestHash;
+					}
+
+				}else{
+				
+					if(lastHarvestId != ""){
+						account_harvests_query += "&id=" + lastHarvestId;
+					}
+				}
+
+				return connectNode(nodes,account_harvests_query,getNemHarvestData,nodeIndex);
+
+			}).then(function(res){
+				console.log(res);
+				parse_harvests(res);
+
+				if(res.data.length > 0){
+
+					lastHarvestId     = res.data[res.data.length - 1].id;
+					lastHarvestHeight = res.data[res.data.length - 1].height;
+
+					return getNodes()
+					.then(function(nodes){
+						return connectNode2(nodes,"/block/at/public",getNemHarvestData,nodeIndex);
+					}).then(function(res2){
+						lastHarvestHash = res2.prevBlockHash.data;
+					});
+
+				}else{
+					console.log("error!!!");
+					var d = $.Deferred();
+					return d.reject("Error!");
+
+				}
+			});
+		return res;
+	}
+
+	function connectNode2(nodes,query2,getData,nodeIndex){
+
+		if(targetNode == "" || isHashAccess){
+			targetNode = nodes[Math.floor(Math.random() * nodes.length)] + ":7890";
+		}
+
+		var d = $.Deferred();
+//		var res = $.ajax({url:  "http://" + targetNode + query2 ,type: 'GET',timeout: 3000}).then(
+		console.log("http://" + targetNode + query2 );
+		console.log(lastHarvestHeight);
+		var res=  $.ajax({
+			url: "http://" + targetNode + query2  ,
+			type: 'POST',
+			contentType:'application/json',
+			data: JSON.stringify({"height":lastHarvestHeight})
+		}).then(
+			function(res){
+				console.log(res);
+				d.resolve(res);
+			}
+
+		).catch(
+			function(res){
+
+				console.log(res);
+				if(lastTransferHash != ""){
+					console.log("ハッシュアクセスモードに切り替えます。");
+					isHashAccess = true;
+				}
+				return catapult(getData,nodeIndex + 1);
+//				return d.reject();
+			}
+		);
+		return d.promise();
+	}
+	
+
+
+
+	
+
+	let catapult = function(api,num){
+		let nodeIndex = num;	
+
+		Array.apply(1, {length: num}).reduce(
+			function(promise){
+				return promise.then(
+					function(param){
+						nodeIndex--;
+						return api(nodeIndex);
+					}
+				);
+			}, 
+			$.Deferred().resolve()
+		).then(
+			function(){
+				console.log("done!");
+			}
+		);
+	}
+
+
+	catapult(getNemAccountData,1);
+	catapult(getNemTransferData,1);
+	catapult(getNemHarvestData,1);
+
+
 
 	$('#transfers_more').click(function(){
 
-		sendAjax(ACCOUNT_TRANSFERS + address + "&id=" + last_transfer_id).done(function(res){parse_transfers(res)});
+		catapult(getNemTransferData,bulk);
 		return false;
 	})
 
 	$('#harvests_more').click(function(){
 
-		sendAjax(ACCOUNT_HARVESTS + address + "&id=" + last_harvests_id).done(function(result){parse_harvests(result)});
+		catapult(getNemHarvestData,bulk);
 		return false;
 	});
 
@@ -241,6 +465,7 @@ $(function() {
 			var tran_fee = tran.fee;
 			var tran_type = "";
 			var tran_type_csv = "";
+			var outgoing_fee = 0;
 
 			if(tran.type == 4100){
 
@@ -277,7 +502,7 @@ $(function() {
 				}
 
 //				if(address != tran.recipient){
-				let is_appendable = false;
+				var is_appendable = false;
 				if(address != tran.recipient && tran.signer == account_publicKey){
 
 					sum_outcome += tran_amount + tran_fee;
@@ -294,6 +519,7 @@ $(function() {
 						tran_amount_jpy = Math.floor( avg_jpy * (tran_amount_jpy + tran_fee) / 100) / 10000;
 //						tran_amount_jpy = zaif_ticker[getDate(tran.timeStamp)] * (tran_amount_jpy + tran.fee) / 1000000;
 						tran_amount_jpy_csv = tran_amount_jpy;
+						outgoing_fee = Math.floor( avg_jpy * ( tran_fee) / 100) / 10000;
 						tran_amount_jpy = "- " + tran_amount_jpy;
 
 					}else{
@@ -340,11 +566,12 @@ $(function() {
 					$( "#transfers tbody" ).append( "<tr>" +
 						"<td>" + dispTimeStamp(tran.timeStamp) + "</td>" +
 						"<td>" + tran_type + "</td>" +
-						"<td class='text-right'><a target='_blank' href='http://chain.nem.ninja/#/search/" + meta_hash + "'>" + tran_amount + "</a></td>" +
+						"<td class='text-right'><a target='_blank' href='http://explorer.nemchina.com/#/s_tx?hash=" + meta_hash + "'>" + tran_amount + "</a></td>" +
 						"<td class='text-right'>" + tran_amount_jpy + "</td>" +
 						"<td class='text-right'>" + avg_jpy + "</td>" +
+						"<td class='text-right'>" + outgoing_fee + "</td>" +
 					"</tr>" );
-					csv_tran_line += dispTimeStamp(tran.timeStamp) +","+tran_type_csv+","+tran_amount_csv+","+tran_amount_jpy_csv+","+avg_jpy+"\r\n";
+					csv_tran_line += dispTimeStamp(tran.timeStamp) +","+tran_type_csv+","+tran_amount_csv+","+tran_amount_jpy_csv+","+avg_jpy+","+ outgoing_fee+"\r\n";
 				}
 			}
 		});
@@ -360,7 +587,7 @@ function tranDownload() {
 
 
 		var bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-		var content = '日時,区分,XEM,円換算値,円平均\r\n' + csv_tran_line;
+		var content = '日時,区分,XEM,円換算値,円平均,負担手数料\r\n' + csv_tran_line;
 
 		var blob = new Blob([ bom, content ], { "type" : "text/csv" });
 
@@ -496,14 +723,14 @@ function harvestsDownload() {
 			</dl>
 			<h2>入出金履歴</h2>
 			<table id="transfers">
-			<thead><tr><th>日時</th><th>区分</th><th>XEM</th><th>円換算値(小数4桁まで)</th><th>円平均</th></tr></thead>
+			<thead><tr><th>日時</th><th>区分</th><th>XEM</th><th>円換算値(小数4桁まで)</th><th>円平均</th><th>負担手数料</th></tr></thead>
 			<tbody></tbody>
 			</table>
 		<dl>
 			<dt>ここまでの入金総額：</dt><dd><span id="sum_income"></span></dd>
 			<dt>ここまでの出金総額：</dt><dd><span id="sum_outcome"></span></dd>
 			<dd><a id="transfers_more" href="javascript:void(0)" >さらに読み込む</a></dd>
-			<dd><a id="transfers_nembex" href="http://chain.nem.ninja/#/search/" >nembexで確認</a></dd>
+			<dd><a id="transfers_nembex" href="http://chain.nem.ninja/#/search/" >explorerで確認</a></dd>
 			<dd><a id="tdownload" href="#" download="tran_history.csv" onclick="tranDownload()">CSVダウンロード</a></dd>
 		</dl>
 	</div>
@@ -520,7 +747,7 @@ function harvestsDownload() {
 		</ul>
 		<dl>
 		<dt>収支報告</dt>
-		<dd><a href="http://chain.nem.ninja/#/search/NBZNQL-2JDWTG-UAW237-PXV4SS-XSPORY-43GUSW-GSB7" >nembexで確認</a></dd>
+		<dd><a href="http://chain.nem.ninja/#/search/NBZNQL-2JDWTG-UAW237-PXV4SS-XSPORY-43GUSW-GSB7" >explorerで確認</a></dd>
 		<dd><a href="/?address=NBZNQL-2JDWTG-UAW237-PXV4SS-XSPORY-43GUSW-GSB7" >XEMBookで確認</a></dd>
 		</dl>
 	</div>
