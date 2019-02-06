@@ -5,58 +5,89 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0">
 	<title>XEMMessage</title>
-	<script src="http://code.jquery.com/jquery-1.10.2.js"></script>
-	<script src="https://cdn.jsdelivr.net/clipboard.js/1.5.3/clipboard.min.js"></script>
+<!--	<script src="http://code.jquery.com/jquery-1.10.2.js"></script> -->
+		<script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
 	<script>
 
-var NODES = Array(
-"160.16.80.240:7890",
-"172.105.222.7:7890",
-"150.95.147.85:7890",
-"shibuya.supernode.me:7890",
-"52.198.151.33:7890",
-"45.77.129.118:7890",
-"160.16.177.182:7890",
-"160.16.76.122:7890",
-"45.32.250.173:7890",
-"153.126.186.201:7890",
-"qora03.supernode.me:7890",
-"52.68.132.108:7890",
-"160.16.97.178:7890",
-"160.16.177.11:7890",
-"160.16.177.247:7890",
-"160.16.63.95:7890",
-"153.126.157.53:7890",
-"110.44.135.87:7890",
-"150.95.144.63:7890",
-"121.50.43.168:7890",
-"160.16.126.235:7890",
-"183.181.34.30:7890",
-"owl.supernode.me:7890",
-"157.7.196.200:7890",
-"157.7.198.84:7890",
-"45.77.31.211:7890",
-"pegatennnag.supernode.me:7890",
-"160.16.177.93:7890"
-
-);
-
-
-var target_node = NODES[Math.floor(Math.random() * NODES.length)];
-var ACCOUNT_TRANSFERS  = "http://" + target_node + "/account/transfers/all?address=";
-var ACCOUNT_GET        = "http://" + target_node + "/account/get?address=";
 var POLO_JPY_XEM;
-var last_transfer_id;
+var lastId = "";
+var lastHash = "";
+
 var sum_income = 0;
 var sum_outcome = 0;
 var account_publicKey;
+var isHashAccess = false;
+var targetNode = "";
 
 $(function() {
-	var clipboard = new Clipboard('#clipboard');
-	clipboard.on('success', function(e) {
-		e.clearSelection();
-		alert("クリップボードにコピーしました。");
-	});
+
+	function replacer( str, word , size ) {
+
+		var SearchString = '(' + word.replace( ',', '|' ) + ')';
+		var RegularExp = new RegExp( SearchString, "g" );
+		var ReplaceString = "<span class='right' style='color:red; font-size:" + size + "px; background-color: yellow;'>$1</span>";
+		var ResString = str.replace( RegularExp , ReplaceString );
+		return ResString;
+	}
+
+	$('#search_btn').click(function(){
+
+		$('table#transfers tbody *').remove();
+		sum_income = 0;
+		sum_outcome = 0;
+		lastHash = "";
+		lastId = "";
+
+		catapult(getNemTransferData,bulk);
+
+		return false;
+	})
+
+	function getNodes(){
+
+		var d = $.Deferred();
+		$.ajax({url: "https://s3-ap-northeast-1.amazonaws.com/xembook.net/data/v3/node.json" ,type: 'GET',timeout: 1000}).then(
+			function(res){
+				var nodes;
+				if(isHashAccess){
+					nodes = res["apostille"];
+				}else{
+					nodes = res["http"];
+				}
+				d.resolve(nodes);
+			},
+			function(res){
+				d.resolve(["alice2.nem.ninja","alice3.nem.ninja","alice4.nem.ninja","alice5.nem.ninja","alice6.nem.ninja"]);
+			}
+		);
+		return d.promise();
+	}
+
+	function connectNode(nodes,query2,getData,nodeIndex){
+
+		if(targetNode == "" || isHashAccess){
+			targetNode = nodes[Math.floor(Math.random() * nodes.length)] + ":7890";
+		}
+
+		var d = $.Deferred();
+		var res = $.ajax({url:  "http://" + targetNode + query2 ,type: 'GET',timeout: 3000}).then(
+
+			function(res){
+				d.resolve(res);
+			}
+
+		).catch(
+			function(res){
+
+				if(lastHash != ""){
+					console.log("ハッシュアクセスモードに切り替えます。");
+					isHashAccess = true;
+				}
+				return catapult(getData,nodeIndex + 1);
+			}
+		);
+		return d.promise();
+	}
 
 	function sendAjax(URL){
 		return $.ajax({url: URL ,type: 'GET'});
@@ -98,6 +129,7 @@ $(function() {
 		return val;
 	}
 	var address ="";
+	var bulk = 10;
 	if (1 < document.location.search.length) {
 
 		var query = document.location.search.substring(1);
@@ -110,6 +142,13 @@ $(function() {
 			item[idx] = decodeURIComponent(val);
 		}
 		address = item["address"];
+
+		if(item["bulk"] == "" || item["bulk"] === undefined){
+			bulk = 10;
+		}else{
+			bulk = Number(item["bulk"]);
+
+		}
 	}
 
 	if( address == ""){
@@ -117,58 +156,122 @@ $(function() {
 	}
 	address = address.replace( /-/g , "" ).toUpperCase();
 
+	var getNemAccountData = function(nodeIndex){
 
-	sendAjax(ACCOUNT_GET + address).done(function(result){
+		var res = getNodes()
+			.then(function(nodes){
 
-		var account = result.account;
-		var meta    = result.meta;
-		account_balance = account.balance;
-		account_balance = 	account_balance.toString();
-		account_publicKey = account.publicKey;
-		if(account_balance != "0"){
-			account_balance = dispAmount(account_balance);
-		}else{
-			account_balance = "0.000000";
-		}
-		var account_importance = account.importance * 100000000;
-		account_importance = Math.round( account_importance );
-		account_importance /= 10000;
+				account_get_address_query = "/account/get?address=" + address;
+				return connectNode(nodes,account_get_address_query,getNemAccountData,nodeIndex);
 
-		$("#account_address"   ).text(account.address.substring(0,6) + "-" +account.address.substring(6,12) + "-" + account.address.substring(12,18)+"..." );
-		$("#account_balance"   ).text(account_balance + "XEM");
-		$("#account_importance").text(account_importance);
-		$("#transfers_nembex"  ).attr("href", "http://explorer.nemchina.com/#/s_account?account=" + account.address);
+			}).then(function(result){
 
-		$("#xemtax"  ).attr("href", "xemtax.html?address=" + account.address);
-		$("#xembook"  ).attr("href", "/?address=" + account.address);
-		$("#xemreceiver"  ).attr("href", "xemreceiver2.html?address=" + account.address);
+				var account = result.account;
+				var meta    = result.meta;
+				account_balance = account.balance;
+				account_balance = 	account_balance.toString();
+				account_publicKey = account.publicKey;
+				if(account_balance != "0"){
+					account_balance = dispAmount(account_balance);
+				}else{
+					account_balance = "0.000000";
+				}
+				var account_importance = account.importance * 100000000;
+				account_importance = Math.round( account_importance );
+				account_importance /= 10000;
 
+				$("#account_address"   ).text(account.address.substring(0,6) + "-" +account.address.substring(6,12) + "-" + account.address.substring(12,18)+"..." );
+				$("#account_balance"   ).text(account_balance + "XEM");
+				$("#account_importance").text(account_importance);
+				$("#transfers_nembex"  ).attr("href", "http://explorer.nemchina.com/#/s_account?account=" + account.address);
 
-		$.when(
-			sendAjax("https://poloniex.com/public?command=returnTicker"),
-			sendAjax("https://blockchain.info/ticker?cors=true")
-		)
-		.done(function(res1, res2) {
-
-			POLO_JPY_XEM = res1[0].BTC_XEM.last * res2[0].JPY.last;
-			var polo_price = account.balance / 1000000 * POLO_JPY_XEM;
-			polo_price = String(Math.round(polo_price)).replace( /(\d)(?=(\d\d\d)+(?!\d))/g, '$1,');
-			POLO_JPY_XEM = Math.round(POLO_JPY_XEM * 1000) / 1000;
-			$("#polo_price").text(polo_price + "円 (" + POLO_JPY_XEM + "JPY/XEM換算)");
-			$("#polo_lastprice").text( POLO_JPY_XEM + "円 / XEM");
+				$("#xemtax"  ).attr("href", "xemtax.html?address=" + account.address);
+				$("#xembook"  ).attr("href", "/?address=" + account.address);
+				$("#xemreceiver"  ).attr("href", "xemreceiver2.html?address=" + account.address);
 
 
-		})
-		.fail(function(xhr, textStatus, errorThrown) {
-			alert("時価の取得に失敗しました。");
-		});
-	})
-	.fail(function(xhr, textStatus, errorThrown) {
-	});
+				$.when(
+					sendAjax("https://poloniex.com/public?command=returnTicker"),
+					sendAjax("https://blockchain.info/ticker?cors=true")
+				)
+				.done(function(res1, res2) {
 
-	sendAjax(ACCOUNT_TRANSFERS + address).done(function(res){parse_transfers(res)});
+					POLO_JPY_XEM = res1[0].BTC_XEM.last * res2[0].JPY.last;
+					var polo_price = account.balance / 1000000 * POLO_JPY_XEM;
+					polo_price = String(Math.round(polo_price)).replace( /(\d)(?=(\d\d\d)+(?!\d))/g, '$1,');
+					POLO_JPY_XEM = Math.round(POLO_JPY_XEM * 1000) / 1000;
+					$("#polo_price").text(polo_price + "円 (" + POLO_JPY_XEM + "JPY/XEM換算)");
+					$("#polo_lastprice").text( POLO_JPY_XEM + "円 / XEM");
+
+
+				})
+				.fail(function(xhr, textStatus, errorThrown) {
+					alert("時価の取得に失敗しました。");
+				});
+
+			});
+		return res;
+	}
+
+	var getNemTransferData = function(nodeIndex){
+
+		var res = getNodes()
+			.then(function(nodes){
+
+				account_transfers_all_query = "/account/transfers/all?address=" + address;
+
+				if(isHashAccess){
+
+					if(lastHash != ""){
+						account_transfers_all_query += "&hash=" + lastHash;
+					}
+
+				}else{
+
+					if(lastId != ""){
+						account_transfers_all_query += "&id=" + lastId;
+					}
+				}
+
+				return connectNode(nodes,account_transfers_all_query,getNemTransferData,nodeIndex);
+
+			}).then(function(res){
+				lastId = res.data[res.data.length - 1].meta.id;
+				lastHash = res.data[res.data.length - 1].meta.hash.data;
+				parse_transfers(res);
+			});
+		return res;
+	}
+
+	var catapult = function(api,num){
+		var nodeIndex = num;
+
+		Array.apply(1, {length: num}).reduce(
+			function(promise){
+				return promise.then(
+					function(param){
+						nodeIndex--;
+						return api(nodeIndex);
+					}
+				);
+			},
+			$.Deferred().resolve()
+		).then(
+			function(){
+				console.log("done!");
+			}
+		);
+	}
+
+	//アカウント情報の取得
+	catapult(getNemAccountData,1);
+
+	//取引情報の取得
+	catapult(getNemTransferData,1);
+
 	$('#transfers_more').click(function(){
-		sendAjax(ACCOUNT_TRANSFERS + address + "&id=" + last_transfer_id).done(function(res){parse_transfers(res)});
+
+		catapult(getNemTransferData,bulk);
 		return false;
 	})
 
@@ -183,12 +286,20 @@ $(function() {
 
 	var parse_transfers = function(result){
 
+		var search_word = $("#search_word").val();
 		var dataArray = result.data;
 		dataArray.forEach(function(val){
+			var is_hit = true;
+			if(search_word != ""){
+				is_hit = false;
+			}
+
 			var meta = val.meta;
-			last_transfer_id = meta.id;
+//			lastId = meta.id;
 
 			var meta_hash = meta.hash.data;
+//			lastHash = meta.hash.data;
+
 			var tran = val.transaction;
 			var tran_amount = 0;
 			var tran_fee = tran.fee;
@@ -214,65 +325,77 @@ $(function() {
 						console.log("HEX: " + o);
 					}else{
 						try {
+
 //							plain_text =  decodeURIComponent(escape(hex2a(o)));
 							plain_text = escape_html(decodeURIComponent( escape(hex2a(o))));
 //							console.log("plain_text:" + plain_text);
+
+							if(plain_text.match(search_word)  ){
+
+								if(search_word != ""){
+
+									plain_text = replacer( plain_text, search_word,15);
+									is_hit = true;
+								}
+							}
+
 						} catch (e) {
-								console.log(tran_message);
-								console.log('invalid text input: ' + tran_message.payload);
+							console.log(tran_message);
+							console.log('invalid text input: ' + tran_message.payload);
 						}
 					}
 				}
 
-				//モザイクが存在した場合
-				var has_mosaic = false;
-				if(tran.mosaics){
+				if(is_hit){
+					//モザイクが存在した場合
+					var has_mosaic = false;
+					if(tran.mosaics){
 
-					for(key  in tran.mosaics){
-						has_mosaic = true;
-						var mosaic = tran.mosaics[key];
-						if(mosaic.mosaicId.name == "xem" && mosaic.mosaicId.namespaceId == "nem"){
-							tran_amount = mosaic.quantity;
+						for(key  in tran.mosaics){
+							has_mosaic = true;
+							var mosaic = tran.mosaics[key];
+							if(mosaic.mosaicId.name == "xem" && mosaic.mosaicId.namespaceId == "nem"){
+								tran_amount = mosaic.quantity;
+							}
 						}
 					}
-				}
-				//通常送金
-				if(!has_mosaic){
-					if (tran.type == 8193 ){
-						tran_amount = tran.rentalFee;
+					//通常送金
+					if(!has_mosaic){
+						if (tran.type == 8193 ){
+							tran_amount = tran.rentalFee;
 
-					}else{
-						tran_amount = tran.amount;
+						}else{
+							tran_amount = tran.amount;
+						}
+					}
+
+					var is_appendable = false;
+					if(address != tran.recipient && tran.signer == account_publicKey){
+
+						sum_outcome += tran_amount + tran_fee;
+						tran_type = "<font color='red'>出金</font>";
+						tran_amount = dispAmount(tran_amount + tran_fee);
+						tran_amount = "- " + tran_amount;
+						is_appendable = true;
+
+					}else if(address == tran.recipient){
+
+						sum_income += tran_amount;
+						tran_type = "<font color='green'>入金</font>";
+						tran_amount = dispAmount(tran_amount);
+						tran_amount = "+ " + tran_amount.toString();
+						is_appendable = true;
+					}
+
+					if(is_appendable ){
+						$( "#transfers tbody" ).append( "<tr>" +
+							"<td style='white-space: nowrap'>" + dispTimeStamp(tran.timeStamp) + "</td>" +
+							"<td style='white-space: nowrap'>" + tran_type + "</td>" +
+							"<td class='text-right' style='white-space: nowrap'><a target='_blank' href='http://explorer.nemchina.com/#/s_tx?hash=" + meta_hash + "'>" + tran_amount + "</a></td>" +
+							"<td style='text-align: left'>" + plain_text + "</td>" +
+						"</tr>" );
 					}
 				}
-
-				let is_appendable = false;
-				if(address != tran.recipient && tran.signer == account_publicKey){
-
-					sum_outcome += tran_amount + tran_fee;
-					tran_type = "<font color='red'>出金</font>";
-					tran_amount = dispAmount(tran_amount + tran_fee);
-					tran_amount = "- " + tran_amount;
-					is_appendable = true;
-
-				}else if(address == tran.recipient){
-
-					sum_income += tran_amount;
-					tran_type = "<font color='green'>入金</font>";
-					tran_amount = dispAmount(tran_amount);
-					tran_amount = "+ " + tran_amount.toString();
-					is_appendable = true;
-				}
-
-				if(is_appendable){
-					$( "#transfers tbody" ).append( "<tr>" +
-						"<td style='white-space: nowrap'>" + dispTimeStamp(tran.timeStamp) + "</td>" +
-						"<td style='white-space: nowrap'>" + tran_type + "</td>" +
-						"<td class='text-right' style='white-space: nowrap'><a target='_blank' href='http://explorer.nemchina.com/#/s_tx?hash=" + meta_hash + "'>" + tran_amount + "</a></td>" +
-						"<td style='text-align: left'>" + plain_text + "</td>" +
-					"</tr>" );
-				}
-
 			}
 		});
 		$("#sum_income"   ).text(dispAmount(sum_income) + "XEM");
@@ -281,19 +404,19 @@ $(function() {
 	}
 
 	function escape_html (string) {
-	  if(typeof string !== 'string') {
-	    return string;
-	  }
-	  return string.replace(/[&'`"<>]/g, function(match) { //'
-	    return {
-	      '&': '&amp;',
-	      "'": '&#x27;',
-	      '`': '&#x60;',
-	      '"': '&quot;',
-	      '<': '&lt;',
-	      '>': '&gt;',
-	    }[match]
-	  });
+		if(typeof string !== 'string') {
+			return string;
+		}
+		return string.replace(/[&'`"<>]/g, function(match) { //'
+			return {
+				'&': '&amp;',
+				"'": '&#x27;',
+				'`': '&#x60;',
+				'"': '&quot;',
+				'<': '&lt;',
+				'>': '&gt;',
+			}[match]
+		});
 	}
 
 });
@@ -373,12 +496,12 @@ $(function() {
 		input#xs_amount { width: 60px; }
 	</style>
 	<script>
-	  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-	  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-	  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-	  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
-	  ga('create', 'UA-100421513-1', 'auto');
-	  ga('send', 'pageview');
+	(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+	ga('create', 'UA-100421513-1', 'auto');
+	ga('send', 'pageview');
 
 	</script>
 </head>
@@ -390,21 +513,30 @@ $(function() {
 <div class="container">
 
 
+	<div >
+		<h2>抽出条件</h2>
 
-		<div >
-			<h2>入出金履歴</h2>
-			<table id="transfers">
-			<thead><tr><th>日時</th><th>区分</th><th>金額</th><th>メッセージ</th></tr></thead>
-			<tbody></tbody>
-			</table>
-			<dl>
-				<dt>ここまでの入金総額：</dt><dd><span id="sum_income"></span></dd>
-				<dt>ここまでの出金総額：</dt><dd><span id="sum_outcome"></span></dd>
-				<dd><a id="transfers_more" href="javascript:void(0)" >さらに読み込む</a></dd>
-				<dd><a id="transfers_nembex">nembexで確認</a></dd>
-			</dl>
-		</div>
+		<form class="form-inline">
+			<div class="form-group">
+				<input id="search_word" type="text" name="name" class="form-control">
+			</div>
+			<button id="search_btn"	class="btn btn-default">再検索</button>
+		</form>
+	</div>
 
+	<div >
+		<h2>入出金履歴</h2>
+		<table id="transfers">
+		<thead><tr><th>日時</th><th>区分</th><th>金額</th><th>メッセージ</th></tr></thead>
+		<tbody></tbody>
+		</table>
+		<dl>
+			<dt>ここまでの入金総額：</dt><dd><span id="sum_income"></span></dd>
+			<dt>ここまでの出金総額：</dt><dd><span id="sum_outcome"></span></dd>
+			<dd><a id="transfers_more" href="javascript:void(0)" >さらに読み込む</a></dd>
+			<dd><a id="transfers_nembex">nembexで確認</a></dd>
+		</dl>
+	</div>
 
 	<div class="row">
 		<div class="account col-sm-4">
@@ -415,10 +547,9 @@ $(function() {
 			<dt>時価総額</dt><dd><span id="polo_price"></span></dd>
 			<dt>重要度</dt><dd><span id="account_importance"></span></dd>
 			</dl>
-
 		</div>
-		<div class="account col-sm-4">
 
+		<div class="account col-sm-4">
 			<div class="faucet">
 				<h2>リンク</h2>
 				<dl>
@@ -430,21 +561,17 @@ $(function() {
 		</div>
 
 		<div class="account col-sm-4">
-
 			<h2>開発者への寄付</h2>
 			<ul class="list-inline">
-			<li><input id="dev_address" type="textarea" value="NBZNQL2JDWTGUAW237PXV4SSXSPORY43GUSWGSB7" onclick="this.setSelectionRange(0,9999);" readonly></li>
-			<li><button id="clipboard" type="button" class="btn btn-default" data-clipboard-target="#dev_address">Copy</button></li>
+			<li>NBZNQL2JDWTGUAW237PXV4SSXSPORY43GUSWGSB7</li>
 			</ul>
 			<dl>
 			<dt>収支報告</dt>
-			<dd><a href="http://chain.nem.ninja/#/search/NBZNQL-2JDWTG-UAW237-PXV4SS-XSPORY-43GUSW-GSB7" >nembexで確認</a></dd>
+			<dd><a href="http://explorer.nemchina.com/#/s_account?account=NBZNQL-2JDWTG-UAW237-PXV4SS-XSPORY-43GUSW-GSB7" >nembexで確認</a></dd>
 			<dd><a href="/?address=NBZNQL-2JDWTG-UAW237-PXV4SS-XSPORY-43GUSW-GSB7" >XEMBookで確認</a></dd>
 			</dl>
-
 		</div>
 	</div>
-
 </div>
 
 </body>
