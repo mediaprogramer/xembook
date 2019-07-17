@@ -1,3 +1,4 @@
+
 $(function() {
 
 	var ACCOUNT_GET ;
@@ -49,25 +50,7 @@ $(function() {
 
 
 	var NODES = Array(
-"172.105.222.7",
-"150.95.147.85",
-"shibuya.supernode.me",
-"45.77.129.118",
-"45.32.250.173",
-"153.126.186.201",
-"qora03.supernode.me",
-"160.16.97.178",
-"160.16.63.95",
-"153.126.157.53",
-"110.44.135.87",
-"150.95.144.63",
-"160.16.126.235",
-"183.181.34.30",
-"owl.supernode.me",
-"157.7.196.200",
-"157.7.198.84",
-"45.77.31.211"
-
+"153.126.157.201", "133.130.91.240", "183.181.38.140", "45.76.184.50", "52.68.132.108", "beny.supernode.me", "160.16.201.189", "118.27.16.176", "reach.supernode.me", "203.162.80.231", "nextage.dev", "153.122.84.98", "nemlovely1.supernode.me", "nemstrunk2.supernode.me", "160.16.80.240", "52.78.229.61", "133.167.120.125", "45.124.66.70", "153.122.13.95", "nemlovely2.supernode.me", "super-nem.love", "nemlovely4.supernode.me", "160.16.97.178", "142.91.3.186", "47.89.15.18", "107.170.250.209", "153.126.157.53", "45.124.65.166", "owl.supernode.me", "157.7.196.200", "172.82.183.28", "153.122.13.97", "207.148.99.87", "47.88.230.169", "157.7.197.62", "54.199.183.90", "210.16.120.204", "153.122.86.21", "nemlovely5.supernode.me", "153.122.85.116", "47.88.174.110", "45.76.220.49", "163.44.168.183", "103.207.68.56", "108.61.182.27", "188.166.218.221", "153.122.13.92", "3.113.223.215", "172.82.166.52", "thomas1.supernode.me", "153.122.60.153", "52.194.53.237", "160.16.239.29", "153.122.13.98", "157.7.135.224", "138.68.240.171", "45.33.105.19", "xem6.allnodes.me", "45.32.229.163", "104.128.68.205", "153.126.160.251", "52.194.244.165", "stgnetwork.supernode.me", "45.76.194.171", "163.44.175.223", "133.130.121.211", "45.76.208.73", "150.95.136.134", "210.166.75.228", "snnode.supernode.me", "133.167.106.40", "52.163.228.196", "153.122.85.149", "47.52.117.60", "153.122.13.93"
 	);
 
 	var POLO_JPY_XEM;
@@ -264,29 +247,6 @@ $(function() {
 		}
 	};
 
-	var address ="";
-	if (1 < document.location.search.length) {
-
-		var query = document.location.search.substring(1);
-		var prms = query.split('&');
-		var item = new Object();
-		for (var i = 0; i < prms.length; i++) {
-			var elm   = prms[i].split('=');
-			var idx   = decodeURIComponent(elm[0]);
-			var val   = decodeURIComponent(elm[1]);
-			item[idx] = decodeURIComponent(val);
-		}
-		address = item["address"];
-	}
-
-	if( address == ""){
-		var proaddress = prompt('NEMアドレスを入力してください');
-		proaddress = proaddress.replace( /-/g , "" ).toUpperCase();
-		location.href = "http://xembook.net/?address=" + proaddress;
-
-	}
-	address = address.replace( /-/g , "" ).toUpperCase();
-
 	getAccount(address).then(function(result){
 
 		getHarvests(10);
@@ -305,30 +265,32 @@ $(function() {
 		account_importance /= 10000;
 
 		$.when(
-			$.ajax({url: "https://poloniex.com/public?command=returnTicker" ,type: 'GET'}),
+			$.ajax({url: "https://s3-ap-northeast-1.amazonaws.com/xembook.net/data/v1/price.json" ,type: 'GET',cache: false}),
 			$.ajax({url: "https://blockchain.info/ticker?cors=true"         ,type: 'GET'}),
 			$.ajax({url: ACCOUNT_MOSAIC_OWNED ,type: 'GET'}),
 			$.ajax({url: "https://crix-api-endpoint.upbit.com/v1/crix/trades/ticks?code=CRIX.UPBIT.KRW-XEM" ,type: 'GET'}),
-			$.ajax({url: "https://api.huobi.pro/market/detail?symbol=xemusdt" ,type: 'GET'}),
+//			$.ajax({url: "https://api.huobi.pro/market/detail?symbol=xemusdt" ,type: 'GET'}),
 			$.ajax({url: ACCOUNT_UNCONFIRMED_TRANSACTIONS ,type: 'GET'})
 		)
-		.done(function(res1, res2,res3,res4,res5,res6) {
+		.done(function(res1, res2,res3,res4,res5) {
+
+			ZAIF_JPY_XEM = res1[0].zaif;
+
 			var KRWJPY = res2[0].JPY.last / res2[0].KRW.last;
 			var USDJPY = res2[0].JPY.last / res2[0].USD.last;
 			last_jpy = res2[0].JPY.last;
-			POLO_JPY_XEM = res1[0].BTC_XEM.last * last_jpy;
+//			POLO_JPY_XEM = res1[0].BTC_XEM.last * last_jpy;
 			UPBIT_JPY_XEM = KRWJPY * res4[0][0].tradePrice;
-			HUOBI_JPY_XEM = USDJPY * JSON.parse(res5[0]).tick.close;
+//			HUOBI_JPY_XEM = USDJPY * JSON.parse(res5[0]).tick.close;
 
-			var polo_price = account.balance / 1000000 * POLO_JPY_XEM;
+			var polo_price = account.balance / 1000000 * ZAIF_JPY_XEM;
 			polo_price = String(Math.round(polo_price)).replace( /(\d)(?=(\d\d\d)+(?!\d))/g, '$1,');
-			POLO_JPY_XEM = Math.round(POLO_JPY_XEM * 1000) / 1000;
+			ZAIF_JPY_XEM = Math.round(ZAIF_JPY_XEM * 1000) / 1000;
 			UPBIT_JPY_XEM = Math.round(UPBIT_JPY_XEM * 1000) / 1000;
-			HUOBI_JPY_XEM = Math.round(HUOBI_JPY_XEM * 1000) / 1000;
-			$("#polo_price").text(polo_price + "円 [" + POLO_JPY_XEM + "JPY/XEM換算]");
-			$("#polo_lastprice").text( POLO_JPY_XEM + "円 / XEM");
+//			HUOBI_JPY_XEM = Math.round(HUOBI_JPY_XEM * 1000) / 1000;
+			$("#polo_price").text(polo_price + "円 [" + ZAIF_JPY_XEM + "JPY/XEM換算]");
 			$("#upbit_lastprice").text( UPBIT_JPY_XEM + "円 / XEM");
-			$("#huobi_lastprice").text( HUOBI_JPY_XEM + "円 / XEM");
+//			$("#huobi_lastprice").text( HUOBI_JPY_XEM + "円 / XEM");
 
 			console.log(res3[0]["data"]);
 			for(var i=0;i<res3[0]["data"].length;i++){
@@ -349,7 +311,7 @@ $(function() {
 			checkPrice();
 
 
-			if (res6[0].data.length > 0 ){
+			if (res5[0].data.length > 0 ){
 				$( "#information" ).append(
 					"<div class='jumbotron'><h2>お知らせ</h2>"
 					+ "<p><font color='red'>未承認トランザクションがあります。</font></p></div>"
@@ -389,7 +351,7 @@ $(function() {
 
 	var checkPrice = function(){
 
-		$.ajax({url: "http://13.113.193.148/xembook/lastprice2.json" ,type: 'GET',cache: false}).done(function(res){
+		$.ajax({url: "https://s3-ap-northeast-1.amazonaws.com/xembook.net/data/v1/price.json" ,type: 'GET',cache: false}).done(function(res){
 			ZAIF_JPY_XEM = res.zaif
 			ZAIF_JPY_CMS = res.cms_jpy
 			ZAIF_HIGH = res.high
@@ -431,7 +393,7 @@ $(function() {
 	setTimeout(function(){
 
 		$.ajax({
-			url: "http://13.113.193.148:1337/info?address=" + address  ,
+			url: "http://ec2.xembook.net:1337/info?address=" + address  ,
 			type: 'GET',
 			error: function(XMLHttpRequest) {
 				console.log( XMLHttpRequest);
@@ -446,7 +408,7 @@ $(function() {
 	},3000);
 
 	 $.ajax({
-		url: "http://13.113.193.148:1337/cultivate?address=" + address  ,
+		url: "http://ec2.xembook.net:1337/cultivate?address=" + address  ,
 		type: 'GET',
 		error: function(XMLHttpRequest) {
 			console.log(XMLHttpRequest.responseText);
